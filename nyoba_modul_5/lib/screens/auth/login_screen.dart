@@ -1,4 +1,5 @@
-// Remove unused imports
+import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:lottie/lottie.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -8,6 +9,8 @@ import 'package:nyoba_modul_5/screens/auth/profile_form_screen.dart';
 import 'package:nyoba_modul_5/screens/home/home_screen.dart';
 import 'package:nyoba_modul_5/services/notification_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:internet_connection_checker/internet_connection_checker.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -20,9 +23,77 @@ class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+  late StreamSubscription _connectionSubscription;
+  bool _wasOffline = false;
   bool _isLoading = false;
   bool _isPasswordVisible = false;
   bool _rememberMe = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRememberedEmail();
+    _listenToConnectionChanges();
+  }
+
+  void _listenToConnectionChanges() {
+    _connectionSubscription = InternetConnectionChecker().onStatusChange.listen(
+      (status) {
+        if (!mounted) return;
+
+        if (status == InternetConnectionStatus.disconnected) {
+          _wasOffline = true;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: const [
+                  Icon(Icons.wifi_off, color: Colors.white),
+                  SizedBox(width: 10),
+                  Expanded(child: Text("Tidak ada koneksi internet")),
+                ],
+              ),
+              backgroundColor: Colors.red.shade600,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        } else if (status == InternetConnectionStatus.connected &&
+            _wasOffline) {
+          _wasOffline = false;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: const [
+                  Icon(Icons.wifi, color: Colors.white),
+                  SizedBox(width: 10),
+                  Expanded(child: Text("Koneksi Kembali Online")),
+                ],
+              ),
+              backgroundColor: Colors.green,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+      },
+    );
+  }
+
+  Future<bool> _isConnectedToInternet() async {
+    var connectivityResult = await Connectivity().checkConnectivity();
+    if (connectivityResult == ConnectivityResult.none) {
+      return false;
+    }
+    return await InternetConnectionChecker().hasConnection;
+  }
 
   void _loadRememberedEmail() async {
     final prefs = await SharedPreferences.getInstance();
@@ -35,7 +106,55 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  Future<void> _handleLoginNavigation() async {
+    final user = FirebaseAuth.instance.currentUser;
+    final profileSnapshot =
+        await FirebaseFirestore.instance
+            .collection('Profile')
+            .doc(user!.uid)
+            .get();
+
+    final profileCompleted =
+        profileSnapshot.data()?['profileCompleted'] ?? false;
+
+    if (!mounted) return;
+
+    if (profileCompleted) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const HomeScreen()),
+      );
+    } else {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const ProfileFormScreen()),
+      );
+    }
+  }
+
   Future<void> _login() async {
+    if (!await _isConnectedToInternet()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: const [
+              Icon(Icons.wifi_off, color: Colors.white),
+              SizedBox(width: 10),
+              Expanded(child: Text("Tidak ada koneksi internet")),
+            ],
+          ),
+          backgroundColor: Colors.red.shade600,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
+
     if (_formKey.currentState!.validate()) {
       setState(() => _isLoading = true);
       try {
@@ -44,7 +163,6 @@ class _LoginScreenState extends State<LoginScreen> {
           password: _passwordController.text.trim(),
         );
 
-        // Jika remember me dicentang, simpan email
         final prefs = await SharedPreferences.getInstance();
         if (_rememberMe) {
           await prefs.setString(
@@ -62,15 +180,25 @@ class _LoginScreenState extends State<LoginScreen> {
           'Selamat datang Aplikasi Go-ban!!!',
         );
 
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const ProfileFormScreen()),
-        );
+        await _handleLoginNavigation();
       } on FirebaseAuthException catch (e) {
         if (!mounted) return;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(e.message ?? "Login failed")));
+        showDialog(
+          context: context,
+          builder:
+              (context) => AlertDialog(
+                title: const Text("Login Gagal"),
+                content: Text(
+                  'Silahkan Cek Kembali Email Dan Password Anda Apakah Sudah Benar',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text("OK"),
+                  ),
+                ],
+              ),
+        );
       } finally {
         if (mounted) {
           setState(() => _isLoading = false);
@@ -80,6 +208,27 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _loginWithGoogle() async {
+    if (!await _isConnectedToInternet()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: const [
+              Icon(Icons.wifi_off, color: Colors.white),
+              SizedBox(width: 10),
+              Expanded(child: Text("Tidak ada koneksi internet")),
+            ],
+          ),
+          backgroundColor: Colors.red.shade600,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
     try {
       setState(() => _isLoading = true);
       final googleSignIn = GoogleSignIn(
@@ -105,12 +254,29 @@ class _LoginScreenState extends State<LoginScreen> {
       await googleSignIn.disconnect();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Google login successful"),
+        SnackBar(
+          content: Row(
+            children: const [
+              Icon(Icons.check_circle, color: Colors.white),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  "Login dengan Google berhasil!",
+                  style: TextStyle(fontFamily: 'Poppins'),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: Colors.green.shade600,
           behavior: SnackBarBehavior.floating,
-          margin: EdgeInsets.only(top: 20, left: 16, right: 16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          duration: const Duration(seconds: 3),
         ),
       );
+
       await Future.delayed(const Duration(seconds: 1));
       if (!mounted) return;
       await NotificationService().showNotification(
@@ -137,18 +303,14 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       setState(() => _isLoading = true);
 
-      // Gunakan login default untuk Flutter
       final LoginResult result = await FacebookAuth.instance.login();
 
       if (result.status == LoginStatus.success) {
-        // Dapatkan access token
         final AccessToken accessToken = result.accessToken!;
 
-        // Buat credential
         final OAuthCredential facebookAuthCredential =
             FacebookAuthProvider.credential(accessToken.tokenString);
 
-        // Login ke Firebase
         await FirebaseAuth.instance.signInWithCredential(
           facebookAuthCredential,
         );
@@ -158,7 +320,6 @@ class _LoginScreenState extends State<LoginScreen> {
           const SnackBar(content: Text("Facebook login successful")),
         );
 
-        // Lanjutkan ke profil
         if (!mounted) return;
 
         await NotificationService().showNotification(
@@ -166,10 +327,7 @@ class _LoginScreenState extends State<LoginScreen> {
           'Selamat datang Aplikasi Go-ban!!!',
         );
 
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const ProfileFormScreen()),
-        );
+        await _handleLoginNavigation();
       } else {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -186,20 +344,6 @@ class _LoginScreenState extends State<LoginScreen> {
         setState(() => _isLoading = false);
       }
     }
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _loadRememberedEmail();
-    // FirebaseAuth.instance.authStateChanges().listen((User? user) {
-    //   if (user != null && mounted) {
-    //     Navigator.pushReplacement(
-    //       context,
-    //       MaterialPageRoute(builder: (_) => const ProfileFormScreen()),
-    //     );
-    //   }
-    // });
   }
 
   @override
@@ -465,46 +609,56 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
 
                     // Forgot password & Sign up
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        TextButton(
-                          onPressed: () {
-                            Navigator.pushNamed(context, '/forgot-password');
-                          },
-                          child: const Text(
-                            "Forgot Password?",
-                            style: TextStyle(
-                              color: Color(0xFF41B06E),
-                              fontFamily: 'Poppins',
-                            ),
-                          ),
-                        ),
-                        Row(
-                          children: [
-                            const Text(
-                              "Don't have an account?",
-                              style: TextStyle(
-                                color: Color(0xFF141E46),
-                                fontFamily: 'Poppins',
-                              ),
-                            ),
-                            TextButton(
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Align(
+                            alignment: Alignment.center,
+                            child: TextButton(
                               onPressed: () {
-                                Navigator.pushNamed(context, '/register');
+                                Navigator.pushNamed(
+                                  context,
+                                  '/forgot-password',
+                                );
                               },
                               child: const Text(
-                                "Sign Up",
+                                "Forgot Password?",
                                 style: TextStyle(
                                   color: Color(0xFF41B06E),
-                                  fontWeight: FontWeight.bold,
                                   fontFamily: 'Poppins',
                                 ),
                               ),
                             ),
-                          ],
-                        ),
-                      ],
+                          ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Text(
+                                "Don't have an account?",
+                                style: TextStyle(
+                                  color: Color(0xFF141E46),
+                                  fontFamily: 'Poppins',
+                                ),
+                              ),
+                              TextButton(
+                                onPressed: () {
+                                  Navigator.pushNamed(context, '/register');
+                                },
+                                child: const Text(
+                                  "Sign Up",
+                                  style: TextStyle(
+                                    color: Color(0xFF41B06E),
+                                    fontWeight: FontWeight.bold,
+                                    fontFamily: 'Poppins',
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -515,10 +669,10 @@ class _LoginScreenState extends State<LoginScreen> {
           // Loading indicator - FIXED DEPRECATED withOpacity
           if (_isLoading)
             Container(
-              color: const Color(0x80000000), // Equivalent to .withOpacity(0.5)
+              color: const Color(0x80000000),
               child: Center(
                 child: Lottie.asset(
-                  'assets/loading.json',
+                  'assets/animations/loading.json',
                   width: 100,
                   height: 100,
                 ),

@@ -8,7 +8,7 @@ class NotificationService {
 
   Future<void> init() async {
     await AwesomeNotifications().initialize(
-      null, // default icon
+      null, 
       [
         NotificationChannel(
           channelKey: 'basic_channel',

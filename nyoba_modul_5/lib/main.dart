@@ -6,6 +6,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:nyoba_modul_5/screens/auth/profile_form_screen.dart';
 import 'package:nyoba_modul_5/services/notification_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 // import 'package:nyoba_modul_5/services/cloudinary_service.dart';
 import 'firebase_options.dart';
 import 'screens/splash_screen.dart';
@@ -24,10 +25,8 @@ void main() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
 
-    // ✅ Inisialisasi notifikasi
     await NotificationService().init();
 
-    // ✅ Minta izin notifikasi (Android 13+)
     await AwesomeNotifications().isNotificationAllowed().then((isAllowed) {
       if (!isAllowed) {
         AwesomeNotifications().requestPermissionToSendNotifications();
@@ -170,14 +169,30 @@ class _AuthWrapperState extends State<AuthWrapper> {
                   }
 
                   final profileData = profileSnapshot.data?.data() as Map?;
-                  final profileCompleted =
-                      profileData?['profileCompleted'] ?? false;
+                  return FutureBuilder<SharedPreferences>(
+                    future: SharedPreferences.getInstance(),
+                    builder: (context, prefsSnapshot) {
+                      if (prefsSnapshot.connectionState ==
+                          ConnectionState.done) {
+                        final prefs = prefsSnapshot.data!;
+                        final rememberedEmail = prefs.getString(
+                          'remembered_email',
+                        );
+                        final profileCompleted =
+                            profileData?['profileCompleted'] ?? false;
 
-                  if (profileCompleted) {
-                    return const HomeScreen();
-                  } else {
-                    return const ProfileFormScreen();
-                  }
+                        if (profileCompleted) {
+                          return const HomeScreen();
+                        } else {
+                          return const ProfileFormScreen();
+                        }
+                      }
+
+                      return const Scaffold(
+                        body: Center(child: CircularProgressIndicator()),
+                      );
+                    },
+                  );
                 }
                 return const Scaffold(
                   body: Center(child: CircularProgressIndicator()),

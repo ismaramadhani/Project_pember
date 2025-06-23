@@ -272,7 +272,7 @@ void showUpdateStatusDialog(int id, String currentStatus) {
     }
   }
 
-  final _statusController = TextEditingController();
+  // final _statusController = TextEditingController();
 
   @override
   Widget build(BuildContext context) {

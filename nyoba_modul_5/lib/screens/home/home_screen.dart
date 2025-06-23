@@ -1,8 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart' show FirebaseFirestore;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:nyoba_modul_5/screens/category/mobil.dart';
-import 'package:nyoba_modul_5/screens/category/motor.dart';
+// import 'package:nyoba_modul_5/screens/category/mobil.dart';
+// import 'package:nyoba_modul_5/screens/category/motor.dart';
 import 'package:flashy_tab_bar2/flashy_tab_bar2.dart';
 import 'package:nyoba_modul_5/screens/home/profile_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -158,7 +158,7 @@ class HomePage extends StatelessWidget {
     final userName = state?._userName ?? "User";
     final userImageUrl = state?._userImageUrl;
 
-    final user = FirebaseAuth.instance.currentUser;
+    // final user = FirebaseAuth.instance.currentUser;
     return SingleChildScrollView(
       child: Padding(
         padding: const EdgeInsets.all(16.0),
